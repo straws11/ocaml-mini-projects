@@ -1,0 +1,7 @@
+*/_opam
+*/_build
+*/_build*
+*/_boot
+*/_boot*
+*/*.install
+
