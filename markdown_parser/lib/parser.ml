@@ -19,7 +19,6 @@ let consume_prefix prefix chars =
     match loop prefix chars with
         | Some rest -> rest
         | None -> chars
-    
 
 let rec starts_with prefix chars = (* prefix: char list, chars: char list *)
     match (prefix, chars) with
@@ -38,31 +37,18 @@ let consume_until delim chars =
         in
         loop [] chars
 
+let get_block_kind line = match first_char line with
+    | '#' -> HeadingKind
+    | '-' -> UnorderedListKind
+    | _ -> ParagraphKind
+
 (* core *)
 
 (* parsing inlines *)
-let parse_bold chars =
-    let (inside, rem) = consume_until ['*'; '*'] chars in
-    (* for now assume bold can only have text in it *)
-    let t = consume_prefix ['*'; '*'] rem in
-    (Bold (string_of_char_list inside), t)
-
-
-let parse_italic chars =
-    let (inside, rem) = consume_until ['*'] chars in
-    let t = consume_prefix ['*'] rem in
-    (Italic (string_of_char_list inside), t)
-
-
-let parse_text chars =
-    let rec loop current rem = match rem with
-        | '*' :: t -> (Text (string_of_char_list (List.rev current)), rem) (* end but DON'T consume the * *)
-        | x :: t -> loop (x :: current) t
-        | [] -> (Text (string_of_char_list (List.rev current)), rem)
-    in
-    loop [] chars
 
 let rec parse_inline_list chars = match chars with
+    | '*' :: '*' :: '*' :: t -> let (bold_italic, rem) = parse_bold_italic t in
+        bold_italic :: parse_inline_list rem
     | '*' :: '*' :: t -> let (bold, rem) = parse_bold t in
         bold :: parse_inline_list rem
     | '*' :: t -> let (italic, rem) = parse_italic t in
@@ -70,6 +56,32 @@ let rec parse_inline_list chars = match chars with
     | _ :: t -> let (text, rem) = parse_text chars in
         text :: parse_inline_list rem
     | [] -> []
+
+and parse_bold_italic chars =
+    let (inside, rem) = consume_until ['*'; '*'; '*'] chars in
+    let t = consume_prefix ['*'; '*'; '*'] rem in
+    (Bold ([Italic (parse_inline_list inside)]), t)
+
+
+and parse_bold chars =
+    let (inside, rem) = consume_until ['*'; '*'] chars in
+    let t = consume_prefix ['*'; '*'] rem in
+    (Bold (parse_inline_list inside), t)
+
+
+and parse_italic chars =
+    let (inside, rem) = consume_until ['*'] chars in
+    let t = consume_prefix ['*'] rem in
+    (Italic (parse_inline_list inside), t)
+
+
+and parse_text chars =
+    let rec loop current rem = match rem with
+        | '*' :: t -> (Text (string_of_char_list (List.rev current)), rem) (* end but DON'T consume the * *)
+        | x :: t -> loop (x :: current) t
+        | [] -> (Text (string_of_char_list (List.rev current)), rem)
+    in
+    loop [] chars
 
 (* parse blocks *)
 
@@ -82,22 +94,49 @@ let get_heading_size chars =
 
 let parse_heading line =
     let (size, rest) = get_heading_size (explode line) in
-        Heading (size, parse_inline_list rest)
+    let rem = consume_prefix [' '] rest in
+        Heading (size, parse_inline_list rem)
 
-let parse_paragraph line = Paragraph (parse_inline_list (explode line))
+let parse_paragraph lines =
+    let rec loop acc rem = match rem with
+        | "" :: t -> (acc, t)
+        | h :: t -> begin match get_block_kind h with
+            | ParagraphKind -> loop (h :: acc) t
+            | _ -> (acc, rem)
+            end
+        | [] -> (acc, rem)
+    in
+    let (to_parse, remaining) = loop [] lines in
+    let text = String.concat " " (List.rev to_parse) in
+    (Paragraph (parse_inline_list (explode text)), remaining)
 
-(* assume only non-empty lines *)
-let parse_block line = match first_char line with
-    | '#' -> parse_heading line
-    (* add other cases here *)
-    | _ -> parse_paragraph line
+let parse_unordered_list lines =
+    let rec loop acc rem = match rem with
+        | "" :: t -> (acc, t)
+        | h :: t -> begin match get_block_kind h with
+            | UnorderedListKind -> loop (h :: acc) t
+            | _ -> (acc, rem)
+            end
+        | [] -> (acc, rem)
+    in
+    let (to_parse, remaining) = loop [] lines in
+    let parsed_items = List.map parse_list_item (List.rev to_parse) in
+    (UnorderedList (parsed_items), remaining)
+
+let parse_block lines = match lines with
+    | h :: t -> begin match first_char h with (* identify block by starting char *)
+        | '#' -> (parse_heading h, t)
+        | '-' -> parse_unordered_list lines
+        | _ -> parse_paragraph lines
+            end
+    | [] -> failwith "Cannot parse empty block - should be impossible"
 
 let rec parse_blocks lines = match lines with
     | "" :: t -> parse_blocks t
-    | h :: t -> parse_block h :: parse_blocks t
     | [] -> []
+    | _ -> let (block, rem) = parse_block lines in
+        block :: parse_blocks rem
 
-let parse_input str =
-    let lines = String.split_on_char '\n' str in
+let parse_input lines =
     parse_blocks lines
 

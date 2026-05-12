@@ -5,12 +5,16 @@ let add_tag tag content = Printf.sprintf "<%s>%s</%s>" tag content tag
 
 (* core *)
 
-let render_inline inline = match inline with
-    | Text x | Bold x | Italic x -> match tag_of_inline inline with
-        | Some tag -> add_tag tag x
-        | None -> x
+let rec render_inline inline =
+    let content = match inline with
+        | Bold x | Italic x -> render_inline_list x
+        | Text x -> x
+    in
+    match tag_of_inline inline with
+        | Some tag -> add_tag tag content
+        | None -> content
 
-let rec render_inline_list items = match items with
+and render_inline_list items = match items with
     | h :: t -> render_inline h ^ render_inline_list t
     | [] -> ""
 
