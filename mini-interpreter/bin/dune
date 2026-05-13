@@ -1,0 +1,4 @@
+(executable
+ (public_name mini_interpreter)
+ (name main)
+ (libraries mini_interpreter))
