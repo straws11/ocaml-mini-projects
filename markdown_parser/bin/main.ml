@@ -17,7 +17,10 @@ let () =
     let lines = read_file file_name in
 
     let ast = parse_input lines in
+    print_endline ("Generated AST");
+    print_endline ("---------------");
     print_endline (string_of_block_list ast);
+    print_endline ("---------------\n");
     let html = String.concat "\n" (List.map render_block ast) in
 
     let output_name = if Array.length Sys.argv > 2 then

@@ -40,7 +40,10 @@ let consume_until delim chars =
 let get_block_kind line = match first_char line with
     | '#' -> HeadingKind
     | '-' -> UnorderedListKind
-    | _ -> ParagraphKind
+    | _ -> if starts_with ['`'; '`'; '`'] (explode line) then
+            CodeBlockKind
+        else
+            ParagraphKind
 
 (* core *)
 
@@ -53,6 +56,8 @@ let rec parse_inline_list chars = match chars with
         bold :: parse_inline_list rem
     | '*' :: t -> let (italic, rem) = parse_italic t in
         italic :: parse_inline_list rem
+    | '`' :: t -> let (code, rem) = parse_inline_code t in
+        code :: parse_inline_list rem
     | _ :: t -> let (text, rem) = parse_text chars in
         text :: parse_inline_list rem
     | [] -> []
@@ -77,11 +82,16 @@ and parse_italic chars =
 
 and parse_text chars =
     let rec loop current rem = match rem with
-        | '*' :: t -> (Text (string_of_char_list (List.rev current)), rem) (* end but DON'T consume the * *)
+        | '*' :: t | '`' :: t -> (Text (string_of_char_list (List.rev current)), rem) (* end but DON'T consume the * *)
         | x :: t -> loop (x :: current) t
         | [] -> (Text (string_of_char_list (List.rev current)), rem)
     in
     loop [] chars
+
+and parse_inline_code chars =
+    let (inside, rem) = consume_until ['`'] chars in
+    let t = consume_prefix ['`'] rem in
+    (Code (string_of_char_list inside), t)
 
 (* parse blocks *)
 
@@ -147,12 +157,37 @@ let parse_unordered_list lines =
     let (parsed_items, rem) = loop [] lines in
     (UnorderedList (List.rev parsed_items), rem)
 
+(* assume code blocks have closing ``` on new line alone *)
+let parse_code_block lines =
+    let rec loop acc rem = match rem with
+        | "" :: t -> (acc, rem)
+        | [] -> (acc, rem)
+        | h :: t -> if starts_with ['`'; '`'; '`'] (explode h) then
+            (acc, t)
+        else
+            loop (h :: acc) t
+    in
+    let (first, remaining) = match lines with
+        | h :: t -> (h, t)
+        | [] -> failwith "Parse error in code block"
+    in
+    let first_line = first |> explode |> (consume_prefix ['`'; '`'; '`']) |> string_of_char_list in
+    let language_name = match first_char first_line with
+        | ' ' -> None
+        | _ -> Some first_line
+    in
+    let (block_lines, rem) = loop [] remaining in
+    let code_content = String.concat "\n" (List.rev block_lines) in
+    (CodeBlock (language_name, code_content), rem)
+
+
 let parse_block lines = match lines with
-    | h :: t -> begin match first_char h with (* identify block by starting char *)
-        | '#' -> (parse_heading h, t)
-        | '-' -> parse_unordered_list lines
-        | _ -> parse_paragraph lines
-            end
+    | h :: t -> begin match get_block_kind h with
+        | HeadingKind -> (parse_heading h, t)
+        | ParagraphKind -> parse_paragraph lines
+        | UnorderedListKind -> parse_unordered_list lines
+        | CodeBlockKind -> parse_code_block lines
+    end
     | [] -> failwith "Cannot parse empty block - should be impossible"
 
 let rec parse_blocks lines = match lines with
