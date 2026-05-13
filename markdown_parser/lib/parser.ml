@@ -110,18 +110,40 @@ let parse_paragraph lines =
     let text = String.concat " " (List.rev to_parse) in
     (Paragraph (parse_inline_list (explode text)), remaining)
 
-let parse_unordered_list lines =
+(* will receive lines with first line starting with '-' *)
+let parse_unordered_list_item lines =
     let rec loop acc rem = match rem with
-        | "" :: t -> (acc, t)
-        | h :: t -> begin match get_block_kind h with
-            | UnorderedListKind -> loop (h :: acc) t
-            | _ -> (acc, rem)
+        | "" :: t -> (acc, rem) (* blank line so we're done *)
+        | h :: t -> begin match first_char h with
+            | '-' -> (acc, rem) (* new list item so we're done *)
+            | _ -> loop (h :: acc) t (* include this line as part of the item *)
             end
         | [] -> (acc, rem)
     in
-    let (to_parse, remaining) = loop [] lines in
-    let parsed_items = List.map parse_list_item (List.rev to_parse) in
-    (UnorderedList (parsed_items), remaining)
+
+    (* remove dash from first line *)
+    let (first, remaining) = match lines with
+        | h :: t -> (h, t)
+        | [] -> failwith "Parse error in unordered list item"
+    in
+    let first_line = first |> explode |> (consume_prefix ['-'; ' ']) |> string_of_char_list in
+    let (item_lines, rem) = loop [first_line] remaining in
+    let text = String.concat " " (List.rev item_lines) in
+    (parse_inline_list (explode text), rem)
+
+
+let parse_unordered_list lines =
+    let rec loop parsed rem = match rem with
+        | "" :: t -> (parsed, rem)
+        | h :: t -> begin match first_char h with
+            | '-' -> let (parsed_item, rest) = parse_unordered_list_item rem in
+                loop (parsed_item :: parsed) rest
+            | _ -> (parsed, rem)
+            end
+        | [] -> (parsed, rem)
+    in
+    let (parsed_items, rem) = loop [] lines in
+    (UnorderedList (List.rev parsed_items), rem)
 
 let parse_block lines = match lines with
     | h :: t -> begin match first_char h with (* identify block by starting char *)
