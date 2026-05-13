@@ -114,10 +114,11 @@ let parse_paragraph lines =
 let parse_unordered_list_item lines =
     let rec loop acc rem = match rem with
         | "" :: t -> (acc, rem) (* blank line so we're done *)
-        | h :: t -> begin match first_char h with
-            | '-' -> (acc, rem) (* new list item so we're done *)
-            | _ -> loop (h :: acc) t (* include this line as part of the item *)
-            end
+        | h :: t ->
+            if starts_with ['-'; ' '] (explode h) then
+                (acc, rem)
+            else
+                loop (h :: acc) t
         | [] -> (acc, rem)
     in
 
@@ -135,11 +136,12 @@ let parse_unordered_list_item lines =
 let parse_unordered_list lines =
     let rec loop parsed rem = match rem with
         | "" :: t -> (parsed, rem)
-        | h :: t -> begin match first_char h with
-            | '-' -> let (parsed_item, rest) = parse_unordered_list_item rem in
-                loop (parsed_item :: parsed) rest
-            | _ -> (parsed, rem)
-            end
+        | h :: t ->
+            if starts_with ['-'; ' '] (explode h) then
+                let (parsed_item, rest) = parse_unordered_list_item rem in
+                    loop (parsed_item :: parsed) rest
+            else
+                (parsed, rem)
         | [] -> (parsed, rem)
     in
     let (parsed_items, rem) = loop [] lines in
